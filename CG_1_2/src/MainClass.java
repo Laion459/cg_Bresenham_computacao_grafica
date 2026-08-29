@@ -3,7 +3,17 @@ import java.awt.event.WindowEvent;
 
 import javax.swing.JFrame;
 
+/**
+ * Ponto de entrada da aplicação de Computação Gráfica.
+ * Cria a janela Swing e inicia o canvas de renderização.
+ */
 public class MainClass {
+
+	/**
+	 * Inicializa a janela principal e o loop de renderização.
+	 *
+	 * @param args argumentos de linha de comando (não utilizados)
+	 */
 	public static void main(String[] args) {
 		MainCanvas meuCanvas = new MainCanvas();
 		

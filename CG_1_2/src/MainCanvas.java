@@ -19,6 +19,11 @@ import java.util.Random;
 import javax.imageio.ImageIO;
 import javax.swing.JPanel;
 
+/**
+ * Canvas de renderização com framebuffer próprio.
+ * Responsável pelo loop de animação, entrada do usuário e
+ * algoritmos de desenho (incluindo Bresenham).
+ */
 public class MainCanvas extends JPanel implements Runnable{
 	int W = 640;
 	int H = 480;
@@ -66,6 +71,10 @@ public class MainCanvas extends JPanel implements Runnable{
 	float q1x = 10,q1y = 100;
 	float q2x = 10,q2y = 200;
 	
+	/**
+	 * Constrói o canvas, inicializa o framebuffer, carrega a imagem
+	 * de fundo e registra os listeners de teclado e mouse.
+	 */
 	public MainCanvas() {
 		
 		File f = new File("imgbmp.bmp");
@@ -289,6 +298,17 @@ public class MainCanvas extends JPanel implements Runnable{
 
 		
 	}
+
+	/**
+	 * Copia uma imagem para o buffer de vídeo aplicando filtros de cor.
+	 *
+	 * @param image imagem de origem no formato ABGR
+	 * @param x     posição horizontal de destino no framebuffer
+	 * @param y     posição vertical de destino no framebuffer
+	 * @param fr    multiplicador do canal vermelho (0.0 a 1.0+)
+	 * @param fg    multiplicador do canal verde (0.0 a 1.0+)
+	 * @param fb    multiplicador do canal azul (0.0 a 1.0+)
+	 */
 	private void drawImageToBuffer(BufferedImage image,int x,int y, float fr, float fg, float fb) {
 		byte[] imgBuffer = ((DataBufferByte)image.getRaster().getDataBuffer()).getData();
 		
@@ -340,6 +360,13 @@ public class MainCanvas extends JPanel implements Runnable{
 			}
 		}
 	}
+
+	/**
+	 * Limpa o framebuffer, desenha a cena (imagem, linhas e Bresenham)
+	 * e exibe o resultado na tela, incluindo FPS e posição do mouse.
+	 *
+	 * @param g contexto gráfico fornecido pelo Swing
+	 */
 	@Override
 	public void paint(Graphics g) {
 		
@@ -421,7 +448,14 @@ public class MainCanvas extends JPanel implements Runnable{
 		g.setColor(Color.black);
 		g.drawString("FPS "+fps+" mouse: "+mouseX+","+mouseY, 10, 25);
 	}
-	
+
+	/**
+	 * Desenha uma linha horizontal no buffer de vídeo.
+	 *
+	 * @param x coordenada X inicial
+	 * @param y coordenada Y (fixa)
+	 * @param w comprimento da linha em pixels
+	 */
 	public void desenhaLinhaHorizontal(int x, int y,int w) {
 		int pospix = y*(W*4)+x*4;
 		
@@ -434,7 +468,14 @@ public class MainCanvas extends JPanel implements Runnable{
 			pospix+=4;
 		}
 	}
-	
+
+	/**
+	 * Desenha uma linha vertical no buffer de vídeo.
+	 *
+	 * @param x coordenada X (fixa)
+	 * @param y coordenada Y inicial
+	 * @param h altura da linha em pixels
+	 */
 	public void desenhaLinhaVertical(int x, int y,int h) {
 		int pospix = y*(W*4)+x*4;
 		
@@ -447,7 +488,17 @@ public class MainCanvas extends JPanel implements Runnable{
 			pospix+=(W*4);
 		}
 	}
-	
+
+	/**
+	 * Acende um pixel no buffer de vídeo no formato ABGR.
+	 * Ignora coordenadas fora da área da tela.
+	 *
+	 * @param x coordenada X do pixel
+	 * @param y coordenada Y do pixel
+	 * @param r canal vermelho (0–255)
+	 * @param g canal verde (0–255)
+	 * @param b canal azul (0–255)
+	 */
 	public void desenhaPixel(int x, int y,int r,int g,int b) {
 		if (x < 0 || x >= W || y < 0 || y >= H) {
 			return;
@@ -462,6 +513,18 @@ public class MainCanvas extends JPanel implements Runnable{
 	
 	}
 
+	/**
+	 * Desenha um segmento de reta entre dois pontos usando o algoritmo
+	 * de Bresenham, com apenas operações inteiras.
+	 *
+	 * @param x0 coordenada X do ponto inicial
+	 * @param y0 coordenada Y do ponto inicial
+	 * @param x1 coordenada X do ponto final
+	 * @param y1 coordenada Y do ponto final
+	 * @param r  canal vermelho (0–255)
+	 * @param g  canal verde (0–255)
+	 * @param b  canal azul (0–255)
+	 */
 	public void desenhaLinhaBresenham(int x0, int y0, int x1, int y1, int r, int g, int b) {
 		int dx = Math.abs(x1 - x0);
 		int dy = Math.abs(y1 - y0);
@@ -493,13 +556,23 @@ public class MainCanvas extends JPanel implements Runnable{
 			}
 		}
 	}
-	
+
+	/**
+	 * Inicia a thread responsável pelo loop de simulação e renderização.
+	 */
 	public void start(){
 		runner = new Thread(this);
 		runner.start();
 	}
 	
 	int timer = 0;
+
+	/**
+	 * Atualiza o estado do mundo com base no tempo decorrido:
+	 * movimento da imagem, filtros de cor e posições auxiliares.
+	 *
+	 * @param diftime tempo decorrido desde o último frame, em milissegundos
+	 */
 	public void simulaMundo(long diftime){
 		
 		float difS = diftime/1000.0f;
@@ -536,8 +609,11 @@ public class MainCanvas extends JPanel implements Runnable{
 		q2x = (float)(q2x+Math.cos(ang)*100*diftime/1000.0f);
 		q2y = (float)(q2y+Math.sin(ang)*100*diftime/1000.0f);
 	}
-	
-	
+
+	/**
+	 * Loop principal da thread: simula o mundo, solicita o repaint
+	 * e calcula o FPS a cada segundo.
+	 */
 	@Override
 	public void run() {
 		long time = System.currentTimeMillis();
@@ -566,8 +642,14 @@ public class MainCanvas extends JPanel implements Runnable{
 			}
 		}
 	}
-	
-	
+
+	/**
+	 * Carrega uma imagem do disco e converte para o formato ABGR
+	 * usado pelo framebuffer.
+	 *
+	 * @param filename caminho do arquivo de imagem
+	 * @return imagem convertida em {@link BufferedImage}, ou {@code null} em caso de erro
+	 */
 	public BufferedImage loadImage(String filename) {
 		try {
 			imgtmp = ImageIO.read(new File(filename));
