@@ -374,6 +374,9 @@ public class MainCanvas extends JPanel implements Runnable{
 		desenhaLinhaHorizontal((int)10,(int)100,400);
 		
 		desenhaLinhaVertical((int)10,(int)20,200);
+
+		desenhaLinhaBresenham(10, 100, 400, 300, 255, 0, 0);
+		desenhaLinhaBresenham(clickX, clickY, mouseX, mouseY, 0, 255, 0);
 		
 		
 		
@@ -446,6 +449,10 @@ public class MainCanvas extends JPanel implements Runnable{
 	}
 	
 	public void desenhaPixel(int x, int y,int r,int g,int b) {
+		if (x < 0 || x >= W || y < 0 || y >= H) {
+			return;
+		}
+
 		int pospix = y*(W*4)+x*4;
 			
 		bufferDeVideo[pospix] = (byte)255;
@@ -453,6 +460,38 @@ public class MainCanvas extends JPanel implements Runnable{
 		bufferDeVideo[pospix+2] = (byte)(g&0xff);
 		bufferDeVideo[pospix+3] = (byte)(r&0xff);
 	
+	}
+
+	public void desenhaLinhaBresenham(int x0, int y0, int x1, int y1, int r, int g, int b) {
+		int dx = Math.abs(x1 - x0);
+		int dy = Math.abs(y1 - y0);
+
+		int sx = x0 < x1 ? 1 : -1;
+		int sy = y0 < y1 ? 1 : -1;
+
+		int erro = dx - dy;
+
+		int x = x0;
+		int y = y0;
+
+		while (true) {
+			desenhaPixel(x, y, r, g, b);
+
+			if (x == x1 && y == y1) {
+				break;
+			}
+
+			int erro2 = 2 * erro;
+
+			if (erro2 > -dy) {
+				erro -= dy;
+				x += sx;
+			}
+			if (erro2 < dx) {
+				erro += dx;
+				y += sy;
+			}
+		}
 	}
 	
 	public void start(){
