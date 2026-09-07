@@ -1,85 +1,38 @@
-# Algoritmo de Bresenham — Computação Gráfica
+# Bresenham + Clipping + Triângulo / Pivô  Computação Gráfica
 
-Implementação do **Algoritmo de Bresenham** para rasterização de segmentos de reta em um framebuffer Java, desenvolvida como atividade da disciplina de Computação Gráfica.
+Projeto `CG_1_2`: rasterização **manual** no framebuffer Java, unindo:
 
-O projeto parte de uma base fornecida em aula e estende o motor de desenho com suporte a linhas em **qualquer inclinação**, utilizando apenas operações inteiras — sem dependência de APIs gráficas de alto nível para o traçado da reta.
+1. **Bresenham**  desenha a reta só com inteiros  
+2. **Cohen–Sutherland**  clipping de segmento (parte a linha na borda; não estoura o buffer)  
+3. **Lógica do CG_2_1**  triângulo (3 segmentos), pivô azul `pC`, transformações  
 
----
-
-## Demonstração
-
-| Elemento | Descrição |
-|----------|-----------|
-| Linha vermelha | Segmento fixo `(10, 100) → (400, 300)` desenhado com Bresenham |
-| Linha verde | Segmento dinâmico do ponto clicado até a posição do mouse |
-| Linhas auxiliares | Traços horizontal e vertical (implementação original do template) |
+Diferença central em relação ao código do professor no M2: **não** usamos `g.drawLine`.  
+Tudo passa por `desenhaLinhaClipada` → clip + Bresenham no `bufferDeVideo[]`.
 
 ---
 
-## Funcionalidades
-
-- Rasterização de pixels diretamente em `BufferedImage` (`TYPE_4BYTE_ABGR`)
-- Algoritmo de Bresenham para linhas obliqüas em todas as direções
-- Funções auxiliares para linhas horizontais e verticais
-- Renderização de imagem de fundo com filtros de cor dinâmicos
-- Loop de renderização com exibição de FPS e coordenadas do mouse
-- Controles de movimento da imagem de fundo via teclado
-
----
-
-## Tecnologias
-
-- **Java** (SE)
-- **Java AWT / Swing** — janela, eventos e canvas
-- **Eclipse IDE** — ambiente de desenvolvimento recomendado
-
----
-
-## Estrutura do repositório
+## Ideia geral (ordem de estudo)
 
 ```
-.
-├── CG_1/          # Template inicial da disciplina
-├── CG_1_2/        # Projeto com implementação do Bresenham ★
-│   ├── src/
-│   │   ├── MainClass.java    # Ponto de entrada da aplicação
-│   │   └── MainCanvas.java   # Framebuffer, loop e algoritmos de desenho
-│   └── gato.jpg              # Imagem de fundo utilizada na cena
-└── README.md
+Triângulo / linhas  →  transformações (WASD, Z/X, Q/E em torno de pC)
+         │
+         ▼
+   extremos A,B (float, podem sair da tela)
+         │
+         ▼
+   desenhaLinhaClipada
+         │
+         ├─► Cohen–Sutherland  (parte o segmento)
+         └─► Bresenham         (só o pedaço interno → buffer)
 ```
 
-> O diretório **`CG_1_2`** contém a implementação principal deste repositório.
+Leia nesta sequência no código:
 
----
-
-## Pré-requisitos
-
-- [JDK 8+](https://adoptium.net/) instalado e configurado no `PATH`
-- [Eclipse IDE for Java Developers](https://www.eclipse.org/downloads/) *(recomendado)*
-
----
-
-## Como executar
-
-### Eclipse
-
-1. Clone o repositório:
-   ```bash
-   git clone https://github.com/Laion459/cg_Bresenham_computacao_grafica.git
-   ```
-2. Abra o Eclipse e selecione **File → Open Projects from File System…**
-3. Importe a pasta `CG_1_2`
-4. Certifique-se de que `gato.jpg` está na raiz do projeto `CG_1_2`
-5. Execute a classe `MainClass`
-
-### Linha de comando
-
-Na pasta `CG_1_2`:
-
-```bash
-javac -d bin src/MainClass.java src/MainCanvas.java
-java -cp bin MainClass
-```
+1. `Ponto2D`  translate / scale / rotate  
+2. `Linha2D`  aplica T em A e B  
+3. `MainCanvas`  triângulo, mouse, teclado, `paint`  
+4. `clipaSegmentoCohenSutherland`  clipping  
+5. `desenhaLinhaBresenham`  raster  
 
 ---
 
@@ -87,57 +40,135 @@ java -cp bin MainClass
 
 | Entrada | Ação |
 |---------|------|
-| `W` / `A` / `S` / `D` | Move a imagem de fundo |
-| Clique do mouse | Define o ponto inicial da linha verde |
-| Movimento do mouse | Atualiza o ponto final da linha verde em tempo real |
+| `W` `A` `S` `D` | Translada **todas** as linhas (triângulo incluso) |
+| `Z` / `X` | Escala ×1.25 / ×0.75 (em relação à origem) |
+| `Q` / `E` | Rotação ±π/16 **em torno do pivô pC** |
+| Clique **esquerdo** | 1º = início, 2º = fim → nova `Linha2D` |
+| Clique **direito** | Define o pivô azul `pC` (“chumba” a rotação) |
+| Mouse (com 1º clique feito) | Linha-guia verde até o cursor |
 
 ---
 
-## Implementação do Bresenham
+## O que aparece na tela
 
-O método `desenhaLinhaBresenham` recebe dois pontos `(x0, y0)` e `(x1, y1)` e percorre o segmento pixel a pixel:
+| Elemento | Como é desenhado |
+|----------|------------------|
+| Triângulo preto | 3 `Linha2D` iniciais + `desenhaLinhaClipada` |
+| Linhas criadas | Mesma lista `linhas` |
+| Linha-guia verde | `p0` → mouse, clipada |
+| Quadrado azul | Marcador de `pC` via `desenhaMarcadorPivo` |
+| H / V auxiliares | Template; também clipadas |
+| Fundo `gato.jpg` | `drawImageToBuffer` (filtros RGB periódicos) |
 
-1. Calcula `dx`, `dy` e as direções de incremento (`sx`, `sy`)
-2. Inicializa a variável de erro: `erro = dx - dy`
-3. A cada iteração, plota o pixel atual via `desenhaPixel`
-4. Atualiza `x` e/ou `y` conforme o critério de erro de Bresenham
-5. Encerra ao atingir `(x1, y1)`
-
-```java
-public void desenhaLinhaBresenham(int x0, int y0, int x1, int y1, int r, int g, int b)
-```
-
-Cada pixel é escrito diretamente no array de bytes do framebuffer (`bufferDeVideo`), respeitando o formato **ABGR** de 4 bytes por pixel.
+**Teste de clipping:** mova o triângulo com WASD até sair da tela, ou rotacione com Q/E. A aresta deve **parar na borda**, sem crash.
 
 ---
 
-## Arquitetura de renderização
+## Arquivos
 
 ```
-MainClass
-    └── MainCanvas (JPanel + Runnable)
-            ├── bufferDeVideo[]     ← framebuffer em memória
-            ├── desenhaPixel()      ← escrita atômica de um pixel
-            ├── desenhaLinhaBresenham()
-            ├── drawImageToBuffer() ← composição da imagem de fundo
-            └── paint()             ← limpa, desenha e exibe o buffer
+CG_1_2/
+├── src/
+│   ├── MainClass.java     # Janela Swing + start()
+│   ├── MainCanvas.java    # Framebuffer, clip, Bresenham, input, cena
+│   ├── Ponto2D.java       # Ponto + transformações
+│   └── Linha2D.java       # Segmento A–B (sem Graphics.drawLine)
+├── gato.jpg
+└── README.md
 ```
+
+---
+
+## Como executar
+
+Na pasta `CG_1_2` (com `gato.jpg` no working directory):
+
+```bash
+cd "Z:\LEONARDO\FACU\computação grafica\M1 parte 2\job 1 pre job\ComputacaoGrafica2026\CG_1_2"
+
+javac -encoding UTF-8 -d bin src\MainClass.java src\MainCanvas.java src\Ponto2D.java src\Linha2D.java
+java -cp bin MainClass
+```
+
+---
+
+## Catálogo de classes / métodos
+
+### `MainClass`
+| Método | Função |
+|--------|--------|
+| `main` | Cria `JFrame`, adiciona `MainCanvas`, inicia o loop |
+
+### `Ponto2D`
+| Método | Função |
+|--------|--------|
+| `Ponto2D(x,y)` | Guarda coordenadas |
+| `translate(dx,dy)` | `(x,y) → (x+dx, y+dy)` |
+| `scale(sx,sy)` | `(x,y) → (x·sx, y·sy)` em relação à origem |
+| `rotate(ang)` | Rotação da aula: `x' = x cos + y sin`, `y' = -x sin + y cos` |
+
+### `Linha2D`
+| Método | Função |
+|--------|--------|
+| `Linha2D(x1,y1,x2,y2)` | Cria extremos A e B |
+| `translate` / `scale` / `rotate` | Aplica a transformação nos **dois** extremos |
+
+### `MainCanvas`  cena / input
+| Método | Função |
+|--------|--------|
+| construtor | Framebuffer, triângulo (3 arestas), listeners |
+| `keyPressed` | WASD / Z X / Q E sobre a lista `linhas` |
+| `mousePressed` | Esquerdo = criar linha; direito = `pC` |
+| `paint` | Limpa buffer → fundo → H/V → linhas clipadas → guia → pivô → blit |
+| `desenhaMarcadorPivo` | Quadrado azul 5×5 no buffer |
+| `simulaMundo` / `run` | Filtros, FPS, loop |
+| `loadImage` / `drawImageToBuffer` | Fundo ABGR |
+
+### `MainCanvas`  clipping + raster
+| Método | Função |
+|--------|--------|
+| `calculaOutCode` | Bits LEFT/RIGHT/TOP/BOTTOM do ponto |
+| `clipaSegmentoCohenSutherland` | Parte o segmento; `int[]` ou `null` |
+| `desenhaLinhaClipada` | Clip → Bresenham |
+| `desenhaLinhaBresenham` | Raster só com inteiros |
+| `desenhaPixel` | 1 pixel ABGR (+ segurança de bounds) |
+| `desenhaLinhaHorizontal` / `Vertical` | Auxiliares já clipadas |
+
+---
+
+## Rotação em torno de `pC` (Q/E)
+
+Igual ao slide *“Rotação por um ponto escolhido”* e ao `CG_2_1`:
+
+1. `translate(-pC.X, -pC.Y)`  pivô vai para a origem  
+2. `rotate(±π/16)`  gira  
+3. `translate(+pC.X, +pC.Y)`  pivô volta  
+
+O clique direito só muda **onde** está esse pivô.
+
+---
+
+## Por que não `g.drawLine`?
+
+| | Professor (`CG_2_1`) | Este trabalho (`CG_1_2`) |
+|--|---------------------|-------------------------|
+| Desenho | `Graphics.drawLine` | Buffer + Bresenham |
+| Clipping | Nativo do Java | Cohen–Sutherland (implementado) |
+| Triângulo / `pC` | Sim | Sim (mesma ideia) |
+
+O clipping nativo “esconde” o algoritmo. Aqui o pedaço de fora **não entra** no buffer  requisito da aula.
 
 ---
 
 ## Referências
 
-- Bresenham, J. E. — *Algorithm for computer control of a digital plotter* (1965)
-- Material base: repositório da disciplina de Computação Gráfica — UNIVALI
+- Bresenham (1965)  
+- Cohen–Sutherland line clipping  
+- Transformações 2D  Foley & Van Dam / material da disciplina  
+- Base M2: `CG_2_1` (triângulo + pivô)
 
 ---
 
 ## Autor
 
-**Leonardo** — [Laion459](https://github.com/Laion459)
-
----
-
-## Licença
-
-Projeto acadêmico. Consulte o professor responsável pela disciplina para orientações sobre uso e distribuição.
+**Leonardo**  atividade acadêmica de Computação Gráfica
