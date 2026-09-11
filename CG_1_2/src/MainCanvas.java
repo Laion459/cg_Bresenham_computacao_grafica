@@ -26,12 +26,13 @@ import javax.swing.JPanel;
  * algoritmos de desenho: Bresenham + clipping de segmento
  * (Cohen–Sutherland) para não estourar o buffer.
  * <p>
- * Também traz a lógica do CG_2_1 (triângulo, pivô pC, transformações),
- * mas desenha com {@link #desenhaLinhaClipada} em vez de {@code g.drawLine}.
+ * Evolução 3D (aula 4): {@link Ponto3D}, {@link Triangulo3D} e
+ * transformações via {@link Matriz4x4} (T / S / Rx / Ry / Rz pela origem).
+ * A projeção manda (x,y,z) para a tela; o raster continua 2D.
  */
 public class MainCanvas extends JPanel implements Runnable{
-	int W = 640;
-	int H = 480;
+	int W = 900;
+	int H = 700;
 	
 	Thread runner;
 	boolean ativo = true;
@@ -48,7 +49,8 @@ public class MainCanvas extends JPanel implements Runnable{
 	int framecount = 0;
 	int fps = 0;
 	
-	Font f = new Font("", Font.PLAIN, 30);
+	Font f = new Font("", Font.PLAIN, 22);
+	Font fonteAtalhos = new Font("", Font.PLAIN, 14);
 	
 	int clickX = 0;
 	int clickY = 0;
@@ -77,8 +79,7 @@ public class MainCanvas extends JPanel implements Runnable{
 	float q2x = 10,q2y = 200;
 
 	/**
-	 * Lista de segmentos do mundo (o triângulo inicial + linhas criadas com o mouse).
-	 * Cada aresta é uma {@link Linha2D}; o triângulo = 3 segmentos fechados.
+	 * Lista de segmentos 2D criados com o mouse (overlay opcional).
 	 */
 	ArrayList<Linha2D> linhas = new ArrayList<Linha2D>();
 
@@ -89,10 +90,26 @@ public class MainCanvas extends JPanel implements Runnable{
 	Ponto2D p0 = null;
 
 	/**
-	 * Pivô (ponto azul)  “onde o desenho chumba” na rotação (Q/E).
-	 * Clique direito redefine pC. Começa no centro da tela (320, 240).
+	 * Triângulo 3D da cena (vértices com Z; transformações por matriz 4×4).
+	 * Coordenadas locais centradas na origem — rotações Rx/Ry/Rz giram em torno dela.
 	 */
-	Ponto2D pC = new Ponto2D(320, 240);
+	Triangulo3D triangulo3D;
+
+	/**
+	 * Ponto 3D de demonstração (fase “só um ponto”): mesma matriz do triângulo.
+	 * Marcador vermelho na tela após projeção.
+	 */
+	Ponto3D pontoDemo;
+
+	/** Centro da tela usado na projeção (um pouco acima do meio p/ caber os atalhos). */
+	int origemTelaX = 450;
+	int origemTelaY = 320;
+
+	/** Distância da câmera na projeção perspectiva simples. */
+	float distanciaPerspectiva = 400f;
+
+	/** true = perspectiva; false = ortográfica. Tecla P alterna. */
+	boolean usarPerspectiva = true;
 	
 	/**
 	 * Constrói o canvas, inicializa o framebuffer, carrega a imagem
@@ -117,23 +134,23 @@ public class MainCanvas extends JPanel implements Runnable{
 		}
 
 		// -----------------------------------------------------------------
-		// TRIÂNGULO INICIAL (igual à ideia do CG_2_1)
-		// Interação 1: aresta A→B
-		// Interação 2: aresta B→C
-		// Interação 3: aresta C→A  (fecha o triângulo)
-		// Não existe classe Triangulo: são 3 Linha2D na lista "linhas".
+		// CENA 3D INICIAL (aula 4) — vértices em torno da origem (0,0,0)
+		// Z diferente deixa Rx/Ry visíveis na projeção.
 		// -----------------------------------------------------------------
-		linhas.add(new Linha2D(200, 100, 250, 200)); // A→B
-		linhas.add(new Linha2D(250, 200, 150, 200)); // B→C
-		linhas.add(new Linha2D(150, 200, 200, 100)); // C→A
-		
-		setSize(640,480);
+		triangulo3D = new Triangulo3D(
+				0, 80, 0,      // A
+				70, -50, 40,   // B
+				-70, -50, -40  // C
+		);
+		pontoDemo = new Ponto3D(0, 80, 0); // começa no vértice A
+
+		setSize(W, H);
 		setFocusable(true);
 		
-		Largura = 640;
-		Altura = 480;
+		Largura = W;
+		Altura = H;
 		
-		pixelSize = 640*480;
+		pixelSize = W * H;
 		
 		
 //		try {
@@ -143,9 +160,9 @@ public class MainCanvas extends JPanel implements Runnable{
 //			e1.printStackTrace();
 //		}
 		
-		imgtmp = loadImage("gato.jpg");
+		//imgtmp = loadImage("gato.jpg");
 		
-		imageBuffer = new BufferedImage(640,480, BufferedImage.TYPE_4BYTE_ABGR);
+		imageBuffer = new BufferedImage(W, H, BufferedImage.TYPE_4BYTE_ABGR);
 		//imageBuffer.getGraphics().drawImage(imgtmp, 0, 0, null);
 		
 		
@@ -260,64 +277,69 @@ public class MainCanvas extends JPanel implements Runnable{
 			@Override
 			public void keyPressed(KeyEvent e) {
 				int key = e.getKeyCode();
+				float passo = 10f;
+				float ang = (float) (Math.PI / 16);
+				Matriz4x4 transformacao = null;
 
-				// Interação WASD: translada TODAS as linhas (triângulo + criadas)
+				// WASD: translação XY | R/F: translação Z
 				if (key == KeyEvent.VK_W) {
 					UP = true;
-					// Interação: para cada segmento, translate(0, -10) = sobe
-					for (int i = 0; i < linhas.size(); i++) {
-						linhas.get(i).translate(0, -10);
-					}
+					transformacao = Matriz4x4.translacao(0, passo, 0);
 				}
 				if (key == KeyEvent.VK_S) {
 					DOWN = true;
-					for (int i = 0; i < linhas.size(); i++) {
-						linhas.get(i).translate(0, 10);
-					}
+					transformacao = Matriz4x4.translacao(0, -passo, 0);
 				}
 				if (key == KeyEvent.VK_A) {
 					LEFT = true;
-					for (int i = 0; i < linhas.size(); i++) {
-						linhas.get(i).translate(-10, 0);
-					}
+					transformacao = Matriz4x4.translacao(-passo, 0, 0);
 				}
 				if (key == KeyEvent.VK_D) {
 					RIGHT = true;
-					for (int i = 0; i < linhas.size(); i++) {
-						linhas.get(i).translate(10, 0);
-					}
+					transformacao = Matriz4x4.translacao(passo, 0, 0);
+				}
+				if (key == KeyEvent.VK_R) {
+					transformacao = Matriz4x4.translacao(0, 0, passo);
+				}
+				if (key == KeyEvent.VK_F) {
+					transformacao = Matriz4x4.translacao(0, 0, -passo);
 				}
 
-				// Interação Z/X: escala em relação à ORIGEM (0,0)  como no CG_2_1
+				// Z/X: escala em relação à origem
 				if (key == KeyEvent.VK_Z) {
-					for (int i = 0; i < linhas.size(); i++) {
-						linhas.get(i).scale(1.25f, 1.25f);
-					}
+					transformacao = Matriz4x4.escala(1.25f, 1.25f, 1.25f);
 				}
 				if (key == KeyEvent.VK_X) {
-					for (int i = 0; i < linhas.size(); i++) {
-						linhas.get(i).scale(0.75f, 0.75f);
-					}
+					transformacao = Matriz4x4.escala(0.75f, 0.75f, 0.75f);
 				}
 
-				// Interação Q/E: rotação em torno do pivô pC (clique direito)
-				// Sequência da aula "rotação por um ponto escolhido":
-				//   1) translate(-pC)  → leva o pivô à origem
-				//   2) rotate(θ)       → gira em torno da origem
-				//   3) translate(+pC)  → devolve o pivô ao lugar
+				// Rotações pela origem (fase 1 — eixo qualquer fica para depois)
+				// Q/E → Rz | T/G → Rx | Y/H → Ry
 				if (key == KeyEvent.VK_Q) {
-					for (int i = 0; i < linhas.size(); i++) {
-						linhas.get(i).translate(-pC.X, -pC.Y);           // passo 1
-						linhas.get(i).rotate((float) (Math.PI / 16));     // passo 2
-						linhas.get(i).translate(pC.X, pC.Y);              // passo 3
-					}
+					transformacao = Matriz4x4.rotacaoZ(ang);
 				}
 				if (key == KeyEvent.VK_E) {
-					for (int i = 0; i < linhas.size(); i++) {
-						linhas.get(i).translate(-pC.X, -pC.Y);
-						linhas.get(i).rotate((float) (-Math.PI / 16));
-						linhas.get(i).translate(pC.X, pC.Y);
-					}
+					transformacao = Matriz4x4.rotacaoZ(-ang);
+				}
+				if (key == KeyEvent.VK_T) {
+					transformacao = Matriz4x4.rotacaoX(ang);
+				}
+				if (key == KeyEvent.VK_G) {
+					transformacao = Matriz4x4.rotacaoX(-ang);
+				}
+				if (key == KeyEvent.VK_Y) {
+					transformacao = Matriz4x4.rotacaoY(ang);
+				}
+				if (key == KeyEvent.VK_H) {
+					transformacao = Matriz4x4.rotacaoY(-ang);
+				}
+
+				if (key == KeyEvent.VK_P) {
+					usarPerspectiva = !usarPerspectiva;
+				}
+
+				if (transformacao != null) {
+					aplicarTransformacao3D(transformacao);
 				}
 			}
 		});		
@@ -337,28 +359,23 @@ public class MainCanvas extends JPanel implements Runnable{
 				clickX = e.getX();
 				clickY = e.getY();
 
-				// -------------------------------------------------------------
-				// BOTÃO ESQUERDO (1): criar segmento em 2 cliques
-				// Interação 1: se p0 == null, guarda o 1º extremo
-				// Interação 2: se p0 != null, cria Linha2D(p0 → clique) e zera p0
-				// -------------------------------------------------------------
-				if (e.getButton() == MouseEvent.BUTTON1) {
-					if (p0 == null) {
-						// Interação 1: marca o início (linha-guia até o mouse)
-						p0 = new Ponto2D(clickX, clickY);
-					} else {
-						// Interação 2: fecha o segmento e adiciona à lista
-						linhas.add(new Linha2D(p0.X, p0.Y, clickX, clickY));
-						p0 = null;
-					}
-				}
-				// -------------------------------------------------------------
-				// BOTÃO DIREITO (3): redefine o pivô pC (ponto azul)
-				// Interação: “chumba” a rotação neste pixel da tela
-				// -------------------------------------------------------------
-				else if (e.getButton() == MouseEvent.BUTTON3) {
-					pC = new Ponto2D(clickX, clickY);
-				}
+//				// -------------------------------------------------------------
+//				// BOTÃO ESQUERDO (1): criar segmento 2D em 2 cliques (legado)
+//				// -------------------------------------------------------------
+//				if (e.getButton() == MouseEvent.BUTTON1) {
+//					if (p0 == null) {
+//						p0 = new Ponto2D(clickX, clickY);
+//					} else {
+//						linhas.add(new Linha2D(p0.X, p0.Y, clickX, clickY));
+//						p0 = null;
+//					}
+//				}
+//				// -------------------------------------------------------------
+//				// BOTÃO DIREITO: reserva para fase 2 (eixo/pivô arbitrário)
+//				// -------------------------------------------------------------
+//				else if (e.getButton() == MouseEvent.BUTTON3) {
+//					System.out.println("Fase 2: pivô/eixo arbitrário ainda não implementado.");
+//				}
 
 				System.out.println("CLICO " + e.getButton());
 			}
@@ -498,34 +515,37 @@ public class MainCanvas extends JPanel implements Runnable{
 //			bufferDeVideo[pos+3] = (byte)0;
 //		}
 		
-		drawImageToBuffer(imgtmp,(int)posx,(int)posy,filtroR,filtroG,filtroB);
+//		drawImageToBuffer(imgtmp,(int)posx,(int)posy,filtroR,filtroG,filtroB);
+//
+//		// Auxiliares do template (também clipadas)
+//		desenhaLinhaHorizontal((int)10,(int)100,400);
+//		desenhaLinhaVertical((int)10,(int)20,200);
 
-		// Auxiliares do template (também clipadas)  úteis para ver o clipping H/V
-		desenhaLinhaHorizontal((int)10,(int)100,400);
-		desenhaLinhaVertical((int)10,(int)20,200);
+		// Eixos do mundo 3D projetados (origem no centro da tela)
+		desenhaEixos3D();
 
-		// -----------------------------------------------------------------
-		// Interação: desenha CADA segmento da lista com o nosso motor
-		// (Cohen–Sutherland + Bresenham), NÃO com g.drawLine.
-		// O triângulo = primeiros 3 itens; o resto são linhas do mouse.
-		// Se um extremo sai da tela, a linha é PARTIDA na borda.
-		// -----------------------------------------------------------------
-		for (int i = 0; i < linhas.size(); i++) {
-			Linha2D L = linhas.get(i);
-			desenhaLinhaClipada(
-					(int) L.A.X, (int) L.A.Y,
-					(int) L.B.X, (int) L.B.Y,
-					0, 0, 0); // preto
-		}
+		// Triângulo 3D → projeta vértices → Bresenham + clipping
+		desenhaTriangulo3D(triangulo3D, 0, 0, 0);
 
-		// Interação: linha-guia verde enquanto o 2º clique esquerdo não veio
-		// (de p0 até a posição atual do mouse)  também clipada
-		if (p0 != null) {
-			desenhaLinhaClipada((int) p0.X, (int) p0.Y, mouseX, mouseY, 0, 255, 0);
-		}
+		// Ponto 3D de demo (vermelho)
+		int[] sp = projetar(pontoDemo);
+		desenhaMarcadorPonto(sp[0], sp[1], 255, 0, 0);
 
-		// Interação: marca o pivô pC (quadradinho azul 5×5) pixel a pixel no buffer
-		desenhaMarcadorPivo((int) pC.X, (int) pC.Y);
+		// Marcador da origem 3D (azul) no centro da tela
+		desenhaMarcadorPonto(origemTelaX, origemTelaY, 0, 0, 255);
+
+//		// Linhas 2D criadas com o mouse (overlay)
+//		for (int i = 0; i < linhas.size(); i++) {
+//			Linha2D L = linhas.get(i);
+//			desenhaLinhaClipada(
+//					(int) L.A.X, (int) L.A.Y,
+//					(int) L.B.X, (int) L.B.Y,
+//					80, 80, 80);
+//		}
+//
+//		if (p0 != null) {
+//			desenhaLinhaClipada((int) p0.X, (int) p0.Y, mouseX, mouseY, 0, 255, 0);
+//		}
 		
 		
 		
@@ -556,38 +576,81 @@ public class MainCanvas extends JPanel implements Runnable{
 		g.setFont(f);
 		
 		g.setColor(Color.white);
-		g.fillRect(0, 0, 640, 480);
-//		g.setColor(Color.black);
-//		g.drawLine(0, 0, 640, 480);
+		g.fillRect(0, 0, W, H);
 		
 		g.drawImage(imageBuffer,0,0,null);
-		
-		//g.setColor(Color.BLUE);
-		//g.drawLine(clickX, clickY, mouseX, mouseY);
-		
 
-		
 		g.setColor(Color.black);
-		g.drawString("FPS "+fps+" mouse: "+mouseX+","+mouseY
-				+"  pC: "+(int)pC.X+","+(int)pC.Y, 10, 25);
+		g.drawString("FPS "+fps+"  3D("+fmt(pontoDemo.X)+","+fmt(pontoDemo.Y)+","+fmt(pontoDemo.Z)+")"
+				+"  "+(usarPerspectiva ? "PERS" : "ORT"), 10, 28);
+
+		desenhaAtalhos(g);
+	}
+
+	/** Legenda dos controles na parte de baixo da tela. */
+	private void desenhaAtalhos(Graphics g) {
+		g.setFont(fonteAtalhos);
+		g.setColor(new Color(245, 245, 245));
+		g.fillRect(0, H - 70, W, 70);
+		g.setColor(new Color(200, 200, 200));
+		g.drawLine(0, H - 70, W, H - 70);
+
+		g.setColor(Color.black);
+		int y1 = H - 48;
+		int y2 = H - 28;
+		int y3 = H - 10;
+		g.drawString("WASD: transladar X/Y     R/F: transladar Z     Z/X: escala     P: perspectiva/ortografica", 12, y1);
+		g.drawString("Q/E: rotacao Z     T/G: rotacao X     Y/H: rotacao Y     (eixos pela origem)", 12, y2);
+		g.drawString("Azul = origem 3D    Vermelho = ponto demo    Eixos RGB = X / Y / Z", 12, y3);
+	}
+
+	/** Aplica a mesma matriz 4×4 no triângulo e no ponto de demo. */
+	private void aplicarTransformacao3D(Matriz4x4 matriz) {
+		triangulo3D.transformar(matriz);
+		pontoDemo.transformar(matriz);
+	}
+
+	/** Projeta um ponto 3D para pixels da tela. */
+	private int[] projetar(Ponto3D p) {
+		if (usarPerspectiva) {
+			return p.projetarPerspectiva(origemTelaX, origemTelaY, distanciaPerspectiva);
+		}
+		return p.projetarOrtografica(origemTelaX, origemTelaY);
+	}
+
+	/** Desenha as 3 arestas do triângulo após projeção. */
+	private void desenhaTriangulo3D(Triangulo3D t, int r, int g, int b) {
+		int[] a = projetar(t.A);
+		int[] pb = projetar(t.B);
+		int[] c = projetar(t.C);
+		desenhaLinhaClipada(a[0], a[1], pb[0], pb[1], r, g, b);
+		desenhaLinhaClipada(pb[0], pb[1], c[0], c[1], r, g, b);
+		desenhaLinhaClipada(c[0], c[1], a[0], a[1], r, g, b);
+	}
+
+	/** Eixos X (vermelho), Y (verde), Z (azul) a partir da origem. */
+	private void desenhaEixos3D() {
+		int tam = 50;
+		int[] o = projetar(new Ponto3D(0, 0, 0));
+		int[] x = projetar(new Ponto3D(tam, 0, 0));
+		int[] y = projetar(new Ponto3D(0, tam, 0));
+		int[] z = projetar(new Ponto3D(0, 0, tam));
+		desenhaLinhaClipada(o[0], o[1], x[0], x[1], 200, 0, 0);
+		desenhaLinhaClipada(o[0], o[1], y[0], y[1], 0, 180, 0);
+		desenhaLinhaClipada(o[0], o[1], z[0], z[1], 0, 0, 200);
+	}
+
+	private String fmt(float v) {
+		return String.format("%.0f", v);
 	}
 
 	/**
-	 * Desenha o marcador do pivô pC (quadrado azul) no framebuffer.
-	 * Interação a interação:
-	 * 1) Percorre um bloco 5×5 centrado em (cx, cy)
-	 * 2) Cada pixel passa por {@link #desenhaPixel} (já com clipping de segurança)
-	 * Assim o pivô também não estoura o buffer se estiver perto da borda.
-	 *
-	 * @param cx centro X do pivô
-	 * @param cy centro Y do pivô
+	 * Desenha um marcador 5×5 colorido no framebuffer.
 	 */
-	public void desenhaMarcadorPivo(int cx, int cy) {
-		// Interação 1: offsets de -2 .. +2 formam o quadrado 5×5
+	public void desenhaMarcadorPonto(int cx, int cy, int r, int g, int b) {
 		for (int dy = -2; dy <= 2; dy++) {
 			for (int dx = -2; dx <= 2; dx++) {
-				// Interação 2: pixel azul (R=0, G=0, B=255)
-				desenhaPixel(cx + dx, cy + dy, 0, 0, 255);
+				desenhaPixel(cx + dx, cy + dy, r, g, b);
 			}
 		}
 	}
@@ -944,36 +1007,25 @@ public class MainCanvas extends JPanel implements Runnable{
 	 */
 	public void simulaMundo(long diftime){
 		
-		float difS = diftime/1000.0f;
-		float vel = 50;
-		
-		timer+=diftime;
-		if(timer>=1000) {
-			timer = 0;
-			filtroR = rand.nextFloat();
-			filtroG = rand.nextFloat();
-			filtroB = rand.nextFloat();
-		}
-		
-		if(UP) {
-			// WASD agora move a geometria (triângulo); fundo fica parado
-		}
-		if(DOWN) {
-		}
-		if(LEFT) {
-		}
-		if(RIGHT) {
-		}
-		
-		q1x+=0.2;
-		//q2x=q2x+100*diftime/1000.0f;
-		float dx = mouseX-q2x;
-		float dy = mouseY-q2y;
-		
-		double ang = Math.atan2(dy, dx);
-		
-		q2x = (float)(q2x+Math.cos(ang)*100*diftime/1000.0f);
-		q2y = (float)(q2y+Math.sin(ang)*100*diftime/1000.0f);
+//		float difS = diftime/1000.0f;
+//		float vel = 50;
+//		
+//		timer+=diftime;
+//		if(timer>=1000) {
+//			timer = 0;
+//			filtroR = rand.nextFloat();
+//			filtroG = rand.nextFloat();
+//			filtroB = rand.nextFloat();
+//		}
+//		
+//		q1x+=0.2;
+//		float dx = mouseX-q2x;
+//		float dy = mouseY-q2y;
+//		
+//		double ang = Math.atan2(dy, dx);
+//		
+//		q2x = (float)(q2x+Math.cos(ang)*100*diftime/1000.0f);
+//		q2y = (float)(q2y+Math.sin(ang)*100*diftime/1000.0f);
 	}
 
 	/**
@@ -987,7 +1039,7 @@ public class MainCanvas extends JPanel implements Runnable{
 		long diftime = 0;
 		while(ativo){
 			simulaMundo(diftime);
-			paintImmediately(0, 0, 640, 480);
+			paintImmediately(0, 0, W, H);
 			paintcounter+=100;
 			
 			try {

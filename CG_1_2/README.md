@@ -1,174 +1,77 @@
-# Bresenham + Clipping + Triângulo / Pivô  Computação Gráfica
+# CG_1_2 — Triângulo 3D + Matriz 4×4
 
-Projeto `CG_1_2`: rasterização **manual** no framebuffer Java, unindo:
+Evolução do projeto 2D (Bresenham + Cohen–Sutherland) para **matemática 3D** da Aula 4:
 
-1. **Bresenham**  desenha a reta só com inteiros  
-2. **Cohen–Sutherland**  clipping de segmento (parte a linha na borda; não estoura o buffer)  
-3. **Lógica do CG_2_1**  triângulo (3 segmentos), pivô azul `pC`, transformações  
+1. **Ponto3D** em coordenadas homogêneas `(x, y, z, w)`
+2. **Matriz4x4** — translação, escala e rotação `Rx` / `Ry` / `Rz` (eixo pela **origem**)
+3. **Triangulo3D** — mesma matriz nos 3 vértices
+4. Projeção (ortográfica ou perspectiva) → Bresenham + clipping no framebuffer
 
-Diferença central em relação ao código do professor no M2: **não** usamos `g.drawLine`.  
-Tudo passa por `desenhaLinhaClipada` → clip + Bresenham no `bufferDeVideo[]`.
+**Ainda não:** rotação por eixo arbitrário (fase 2 do professor).
 
 ---
 
-## Ideia geral (ordem de estudo)
+## Ideia
 
 ```
-Triângulo / linhas  →  transformações (WASD, Z/X, Q/E em torno de pC)
+Ponto3D / Triangulo3D  →  Matriz4x4 (T, S, Rx, Ry, Rz)
          │
          ▼
-   extremos A,B (float, podem sair da tela)
+   vértices (x,y,z) no espaço
          │
          ▼
-   desenhaLinhaClipada
+   projeção → (sx, sy) na tela
          │
-         ├─► Cohen–Sutherland  (parte o segmento)
-         └─► Bresenham         (só o pedaço interno → buffer)
+         ▼
+   desenhaLinhaClipada (Cohen–Sutherland + Bresenham)
 ```
-
-Leia nesta sequência no código:
-
-1. `Ponto2D`  translate / scale / rotate  
-2. `Linha2D`  aplica T em A e B  
-3. `MainCanvas`  triângulo, mouse, teclado, `paint`  
-4. `clipaSegmentoCohenSutherland`  clipping  
-5. `desenhaLinhaBresenham`  raster  
 
 ---
 
 ## Controles
 
-| Entrada | Ação |
-|---------|------|
-| `W` `A` `S` `D` | Translada **todas** as linhas (triângulo incluso) |
-| `Z` / `X` | Escala ×1.25 / ×0.75 (em relação à origem) |
-| `Q` / `E` | Rotação ±π/16 **em torno do pivô pC** |
-| Clique **esquerdo** | 1º = início, 2º = fim → nova `Linha2D` |
-| Clique **direito** | Define o pivô azul `pC` (“chumba” a rotação) |
-| Mouse (com 1º clique feito) | Linha-guia verde até o cursor |
+| Tecla | Ação |
+|-------|------|
+| `W` `A` `S` `D` | Translada em X/Y |
+| `R` / `F` | Translada em Z (+/−) |
+| `Z` / `X` | Escala ×1.25 / ×0.75 (origem) |
+| `Q` / `E` | Rotação em **Z** (±π/16) |
+| `T` / `G` | Rotação em **X** |
+| `Y` / `H` | Rotação em **Y** |
+| `P` | Alterna perspectiva ↔ ortográfica |
+| Clique esquerdo | Cria linha 2D overlay (2 cliques) |
+
+Marcadores: **azul** = origem 3D (centro); **vermelho** = ponto demo; eixos RGB = X/Y/Z.
 
 ---
 
-## O que aparece na tela
-
-| Elemento | Como é desenhado |
-|----------|------------------|
-| Triângulo preto | 3 `Linha2D` iniciais + `desenhaLinhaClipada` |
-| Linhas criadas | Mesma lista `linhas` |
-| Linha-guia verde | `p0` → mouse, clipada |
-| Quadrado azul | Marcador de `pC` via `desenhaMarcadorPivo` |
-| H / V auxiliares | Template; também clipadas |
-| Fundo `gato.jpg` | `drawImageToBuffer` (filtros RGB periódicos) |
-
-**Teste de clipping:** mova o triângulo com WASD até sair da tela, ou rotacione com Q/E. A aresta deve **parar na borda**, sem crash.
-
----
-
-## Arquivos
+## Arquivos novos / principais
 
 ```
-CG_1_2/
-├── src/
-│   ├── MainClass.java     # Janela Swing + start()
-│   ├── MainCanvas.java    # Framebuffer, clip, Bresenham, input, cena
-│   ├── Ponto2D.java       # Ponto + transformações
-│   └── Linha2D.java       # Segmento A–B (sem Graphics.drawLine)
-├── gato.jpg
-└── README.md
+src/
+├── Matriz4x4.java    # 4×4, mul, T/S/Rx/Ry/Rz
+├── Ponto3D.java      # homogêneo + projetar
+├── Linha3D.java      # segmento A–B
+├── Triangulo3D.java  # 3 vértices
+├── MainCanvas.java   # cena + teclado + raster
+├── Ponto2D.java      # legado 2D (mouse overlay)
+└── Linha2D.java      # legado 2D
 ```
 
 ---
 
 ## Como executar
 
-Na pasta `CG_1_2` (com `gato.jpg` no working directory):
-
 ```bash
+cd CG_1_2
 javac -encoding UTF-8 -d bin src/*.java
 java -cp bin MainClass
 ```
 
-Ou abra o projeto no Eclipse e rode `MainClass`.
+(Com `gato.jpg` no diretório de trabalho.)
 
 ---
 
-## Catálogo de classes / métodos
+## Fase 2 (depois)
 
-### `MainClass`
-| Método | Função |
-|--------|--------|
-| `main` | Cria `JFrame`, adiciona `MainCanvas`, inicia o loop |
-
-### `Ponto2D`
-| Método | Função |
-|--------|--------|
-| `Ponto2D(x,y)` | Guarda coordenadas |
-| `translate(dx,dy)` | `(x,y) → (x+dx, y+dy)` |
-| `scale(sx,sy)` | `(x,y) → (x·sx, y·sy)` em relação à origem |
-| `rotate(ang)` | Rotação da aula: `x' = x cos + y sin`, `y' = -x sin + y cos` |
-
-### `Linha2D`
-| Método | Função |
-|--------|--------|
-| `Linha2D(x1,y1,x2,y2)` | Cria extremos A e B |
-| `translate` / `scale` / `rotate` | Aplica a transformação nos **dois** extremos |
-
-### `MainCanvas`  cena / input
-| Método | Função |
-|--------|--------|
-| construtor | Framebuffer, triângulo (3 arestas), listeners |
-| `keyPressed` | WASD / Z X / Q E sobre a lista `linhas` |
-| `mousePressed` | Esquerdo = criar linha; direito = `pC` |
-| `paint` | Limpa buffer → fundo → H/V → linhas clipadas → guia → pivô → blit |
-| `desenhaMarcadorPivo` | Quadrado azul 5×5 no buffer |
-| `simulaMundo` / `run` | Filtros, FPS, loop |
-| `loadImage` / `drawImageToBuffer` | Fundo ABGR |
-
-### `MainCanvas`  clipping + raster
-| Método | Função |
-|--------|--------|
-| `calculaOutCode` | Bits LEFT/RIGHT/TOP/BOTTOM do ponto |
-| `clipaSegmentoCohenSutherland` | Parte o segmento; `int[]` ou `null` |
-| `desenhaLinhaClipada` | Clip → Bresenham |
-| `desenhaLinhaBresenham` | Raster só com inteiros |
-| `desenhaPixel` | 1 pixel ABGR (+ segurança de bounds) |
-| `desenhaLinhaHorizontal` / `Vertical` | Auxiliares já clipadas |
-
----
-
-## Rotação em torno de `pC` (Q/E)
-
-Igual ao slide *“Rotação por um ponto escolhido”* e ao `CG_2_1`:
-
-1. `translate(-pC.X, -pC.Y)`  pivô vai para a origem  
-2. `rotate(±π/16)`  gira  
-3. `translate(+pC.X, +pC.Y)`  pivô volta  
-
-O clique direito só muda **onde** está esse pivô.
-
----
-
-## Por que não `g.drawLine`?
-
-| | Professor (`CG_2_1`) | Este trabalho (`CG_1_2`) |
-|--|---------------------|-------------------------|
-| Desenho | `Graphics.drawLine` | Buffer + Bresenham |
-| Clipping | Nativo do Java | Cohen–Sutherland (implementado) |
-| Triângulo / `pC` | Sim | Sim (mesma ideia) |
-
-O clipping nativo “esconde” o algoritmo. Aqui o pedaço de fora **não entra** no buffer  requisito da aula.
-
----
-
-## Referências
-
-- Bresenham (1965)  
-- Cohen–Sutherland line clipping  
-- Transformações 2D  Foley & Van Dam / material da disciplina  
-- Base M2: `CG_2_1` (triângulo + pivô)
-
----
-
-## Autor
-
-**Leonardo**  atividade acadêmica de Computação Gráfica
+Rotação por eixo qualquer: alinhar eixo com Z, girar, desfazer (slide da aula) — **não** implementado ainda.

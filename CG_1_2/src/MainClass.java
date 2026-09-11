@@ -27,9 +27,9 @@ public class MainClass {
 			MainCanvas meuCanvas = new MainCanvas();
 
 			// Interação 2: janela; canvas entra no content pane antes do setVisible
-			JFrame f = new JFrame("CG_1_2  Bresenham + Clipping + Triângulo");
+			JFrame f = new JFrame("CG_1_2  Triângulo 3D + Matriz 4x4");
 			f.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-			f.setSize(640, 480);
+			f.setSize(920, 740);
 			f.getContentPane().add(meuCanvas);
 
 			f.addWindowListener(new WindowAdapter() {
